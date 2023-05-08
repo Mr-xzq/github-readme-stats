@@ -26,9 +26,9 @@ const FAIL_TEXT = `
   \rUnfortunately, your theme PR contains an error or does not adhere to our [theme guidelines](https://github.com/anuraghazra/github-readme-stats/blob/master/CONTRIBUTING.md#themes-contribution). Please fix the issues below, and we will review your\
   \r PR again. This pull request will **automatically close in 20 days** if no changes are made. After this time, you must re-open the PR for it to be reviewed.
 `;
-const THEME_CONTRIB_GUIDELINESS = `
+const THEME_CONTRIB_GUIDELINES = `
   \rHi, thanks for the theme contribution. Please read our theme [contribution guidelines](https://github.com/anuraghazra/github-readme-stats/blob/master/CONTRIBUTING.md#themes-contribution).
-  \rWe are currently only accepting color combinations from any VSCode theme or themes with good colour combinations to minimize bloating the themes collection.
+  \rWe are currently only accepting color combinations from any VSCode theme or themes with good color combinations to minimize bloating the themes collection.
 
   \r> Also, note that if this theme is exclusively for your personal use, then instead of adding it to our theme collection, you can use card [customization options](https://github.com/anuraghazra/github-readme-stats#customization).
 `;
@@ -312,18 +312,30 @@ const parseJSON = (json) => {
       );
     }
   } catch (error) {
-    let parsedJson = json
+    // Remove trailing commas (if any).
+    let parsedJson = json.replace(/(,\s*})/g, "}");
+
+    // Remove JS comments (if any).
+    parsedJson = parsedJson.replace(/\/\/[A-z\s]*\s/g, "");
+
+    // Fix incorrect open bracket (if any).
+    const splitJson = parsedJson
       .split(/([\s\r\s]*}[\s\r\s]*,[\s\r\s]*)(?=[\w"-]+:)/)
-      .filter((x) => typeof x !== "string" || !!x.trim());
-    if (parsedJson[0].replace(/\s+/g, "") === "},") {
-      parsedJson[0] = "},";
-      if (!/\s*}\s*,?\s*$/.test(parsedJson[1])) {
-        parsedJson.push(parsedJson.shift());
+      .filter((x) => typeof x !== "string" || !!x.trim()); // Split json into array of strings and objects.
+    if (splitJson[0].replace(/\s+/g, "") === "},") {
+      splitJson[0] = "},";
+      if (!/\s*}\s*,?\s*$/.test(splitJson[1])) {
+        splitJson.push(splitJson.shift());
       } else {
-        parsedJson.shift();
+        splitJson.shift();
       }
-      return Hjson.parse(parsedJson.join(""));
-    } else {
+      parsedJson = splitJson.join("");
+    }
+
+    // Try to parse the fixed json.
+    try {
+      return Hjson.parse(parsedJson);
+    } catch (error) {
       throw new IncorrectJsonFormatError(
         `Theme JSON file could not be parsed: ${error.message}`,
       );
@@ -351,7 +363,7 @@ export const run = async () => {
     debug(`Context: ${inspect(github.context)}`);
     let commentBody = `
       \r# ${COMMENT_TITLE}
-      \r${THEME_CONTRIB_GUIDELINESS}
+      \r${THEME_CONTRIB_GUIDELINES}
     `;
     const ccc = new ColorContrastChecker();
     OCTOKIT = github.getOctokit(getGithubToken());
@@ -387,10 +399,17 @@ export const run = async () => {
     // Retrieve theme changes from the PR diff.
     debug("Retrieve themes...");
     const diff = parse(res.data);
+
+    // Retrieve all theme changes from the PR diff and convert to JSON.
+    debug("Retrieve theme changes...");
     const content = diff
       .find((file) => file.to === "themes/index.js")
-      .chunks[0].changes.filter((c) => c.type === "add")
-      .map((c) => c.content.replace("+", ""))
+      .chunks.map((chunk) =>
+        chunk.changes
+          .filter((c) => c.type === "add")
+          .map((c) => c.content.replace("+", ""))
+          .join(""),
+      )
       .join("");
     const themeObject = parseJSON(content);
     if (
